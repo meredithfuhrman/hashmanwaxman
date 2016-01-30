@@ -1,0 +1,154 @@
+<html>
+  <head>
+    
+    <title>Smoke Reports API Test</title>
+    <script type="text/javascript" src="http://ajax.googleapis.com/ajax/libs/jquery/2.1.3/jquery.min.js"></script>
+
+    <!-- CSS styling recommend by Google GeoCode API documentation -->
+    <style type="text/css">
+      html, body { height: 100%; margin: 0; padding: 0; }
+      #map { height: 50%; }
+    </style>
+  </head>
+  
+  <body>
+    <p>Test API Output</p>
+    
+    <div id="search_form">
+      <input id="address" type="textbox" value="Enter address or zip">
+      <input id="submit" type="button" value="Search">
+    </div>
+
+    <div id="map"></div>
+
+    <script>
+
+      // Creates starting map centered on SF; recenters on entered address and gets lat/lng values
+      function initMap() {
+        var map = new google.maps.Map(document.getElementById('map'), {
+          zoom: 8,
+          center: {lat: 37.3539663, lng: -121.95299920000002}
+        });
+
+        var geocoder = new google.maps.Geocoder();
+
+        document.getElementById('submit').addEventListener('click', function() {
+          var address = document.getElementById('address').value;
+          updateMapLocation(geocoder, map, address);
+          getLatLng(geocoder, address);
+        });
+      }
+
+      // Takes entered address and changes map to center on it; plan to update to include showing markers for dispensaries
+      function updateMapLocation(geocoder, resultsMap, address) {
+        geocoder.geocode({'address': address}, function(results, status) {
+          if (status === google.maps.GeocoderStatus.OK) {
+            resultsMap.setCenter(results[0].geometry.location);
+          } else {
+            alert('Geocode was not successful for the following reason: ' + status);
+          }
+        });
+      }
+
+      function getLatLng (geocoder, address) {
+        var lat = '';
+        var lng = '';
+        geocoder.geocode( { 'address': address}, function(results, status) {
+          if (status == google.maps.GeocoderStatus.OK) {
+             lat = results[0].geometry.location.lat();
+             lng = results[0].geometry.location.lng();
+             smokereportsAPI(lat, lng);
+          } else {
+            alert("Lat Long geocode was not successful for the following reason: " + status);
+          }
+        });
+      }
+
+      // Processes the data from smokereports API
+      function smokereportsAPI(lat, lng) {
+
+        var url = "https://www.smokereports.com/api/v1.0/producers/0000000000XJJQC0000000000/availability/geo/" + lat + "/" + lng + "?jsoncallback=jsonCallBack";
+        var header = "X-API-Key"
+        var apiKey = "87da432a218ffcda8ded451a6e2e53361a0515ba"
+
+        // API Call to get all Hashman Products available in a given zipcode 
+        $.ajax({
+          url: url,
+          async: false,
+          type: "GET",
+          jsonpCallBack: "jsonCallBack",
+          contentType: "application/json",
+          dataType: "jsonp",
+          headers: { header : apiKey }, 
+          success: function (json) {
+            
+            // Create new array of product objects with just name, location, and location endpoint
+            var hashmanProductList = json.data
+            var products = hashmanProductList.map(getNameLocation);
+
+            function getNameLocation (productList) {
+              var product = { productName: productList["name"], locationName: productList["location"]["name"], locationLink: productList["location"]["link"]};
+              return product;
+            }
+
+
+            // Get address from location link end point URL by making (too many) API calls
+            // TO DO: Per David's suggestion, incorporate Etag here to reduce the number of request 
+            // (eg, don't hit end point if received 304 Not Modified and just use values already have and store in array)
+            $.each(products, function (key, value){
+              
+              var endpoint = value.locationLink + "?jsoncallback=jsonCallBack";
+
+              $.ajax({
+                url: endpoint,
+                async: false,
+                type: "GET",
+                jsonpCallBack: "jsonCallBack",
+                contentType: "application/json",
+                dataType: "jsonp",
+                headers: { header : apiKey }, 
+                success: function (json) {
+                  var dispensaryInfo = json.data
+                  
+                  value.address1 = dispensaryInfo["address"]["address1"]
+                  value.address2 = dispensaryInfo["address"]["address2"]
+                  value.city = dispensaryInfo["city"]
+                  value.state = dispensaryInfo["state"]
+                  value.zip = dispensaryInfo["address"]["zip"]
+                  value.url = dispensaryInfo["url"]
+
+                   var displayProduct = []
+                   displayProduct.push( 
+                    "<li>" + value.productName + "</li>", 
+                    "<li>" + value.locationName + "</li>", 
+                    "<li>" + value.address1 + " " + value.address2 + "</li>",
+                    "<li>" + value.city + " " + value.state + " " + value.zip + "</li>", 
+                    "<li>" + value.url + "</li>", 
+                    "<br>");
+
+
+                  $( "<ul/>", {
+                    "class": "my-new-list",
+                    html: displayProduct.join( "" )
+                  }).appendTo( "body" );
+
+                },
+                error: function (e){
+                  console.log(e.message);
+                }
+              });
+            });
+        },
+
+        error: function (e) {
+          console.log(e.message);
+        }
+      });
+      }
+    </script>
+    
+    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAVClEBwMhfhUQBSoEBncJ3G30J4Lz9oD0&callback=initMap">
+    </script>
+
+  </body>
+</html>
